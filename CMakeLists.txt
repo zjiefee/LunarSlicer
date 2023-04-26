@@ -71,6 +71,7 @@ set(engine_SRCS # Except main.cpp.
         src/Weaver.cpp
         src/Wireframe2gcode.cpp
         src/WallToolPaths.cpp
+        src/MultiMaterialSegmentation.cpp
 
         src/BeadingStrategy/BeadingStrategy.cpp
         src/BeadingStrategy/BeadingStrategyFactory.cpp

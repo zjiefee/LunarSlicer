@@ -34,8 +34,20 @@ void SlicerLayer::makeBasicPolygonLoops(Polygons& open_polylines)
             makeBasicPolygonLoop(open_polylines, start_segment_idx);
         }
     }
-    // Clear the segmentList to save memory, it is no longer needed after this point.
-    segments.clear();
+    if (this->z == 1000) {
+        this->polygons.print();
+        std::cout << "[";
+        for (int i = 0; i < segments.size(); ++i)
+        {
+            auto segment = segments[i];
+            if (segment.color != 1) {
+                continue;
+            }
+            std::cout << "[" << segment.start.X << "," << segment.start.Y << "," << segment.end.X << "," << segment.end.Y << "],";
+        }
+        std::cout << "]" << std::endl;
+        int a = 1;
+    }
 }
 
 void SlicerLayer::makeBasicPolygonLoop(Polygons& open_polylines, const size_t start_segment_idx)
@@ -734,6 +746,10 @@ void SlicerLayer::makePolygons(const Mesh* mesh)
 
     connectOpenPolylines(open_polylines);
 
+    if (!mesh->settings.get<bool>("colorful_slicing_enable") || segments_colors.size() <= 1) {
+        segments.clear();
+    }
+
     // TODO: (?) for mesh surface mode: connect open polygons. Maybe the above algorithm can create two open polygons which are actually connected when the starting segment is in the middle between the two open polygons.
 
     if (mesh->settings.get<ESurfaceMode>("magic_mesh_surface_mode") == ESurfaceMode::NORMAL)
@@ -928,7 +944,9 @@ void Slicer::buildSegments(const Mesh& mesh, const std::vector<std::pair<int32_t
                                s.faceIndex = mesh_idx;
                                s.endOtherFaceIdx = face.connected_face_index[end_edge_idx];
                                s.addedToPolygon = false;
+                               s.color = face.color;
                                layer.segments.push_back(s);
+                               layer.segments_colors.insert(face.color);
                            }
                        });
 }

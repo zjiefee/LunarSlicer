@@ -31,6 +31,11 @@ public:
     // with the vertex that it ended on.
     const MeshVertex* endVertex = nullptr;
     bool addedToPolygon = false;
+    int color = 0;
+
+    Point& operator[](int i) {
+        return i == 0 ? start : end;
+    }
 };
 
 class ClosePolygonResult
@@ -55,6 +60,7 @@ class SlicerLayer
 public:
     std::vector<SlicerSegment> segments;
     std::unordered_map<int, int> face_idx_to_segment_idx; // topology
+    std::set<int> segments_colors;
 
     int z = -1;
     Polygons polygons;
@@ -493,7 +499,7 @@ public:
 
     Slicer(Mesh* mesh, const coord_t thickness, const size_t slice_layer_count, bool use_variable_layer_heights, std::vector<AdaptiveLayer> *adaptive_layers);
 
-
+    Slicer() {};
 private:
 
     /*!
