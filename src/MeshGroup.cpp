@@ -203,7 +203,7 @@ bool loadMeshSTL_binary(Mesh* mesh, const char* filename, const FMatrix4x3& matr
         Point3 v1 = matrix.apply(FPoint3(v[3], v[4], v[5]));
         Point3 v2 = matrix.apply(FPoint3(v[6], v[7], v[8]));
 
-        int color = ((short *) (buffer + 48))[0];
+        int color = ((char *) (buffer + 48))[0];
         mesh->addFace(v0, v1, v2, color);
     }
     fclose(f);

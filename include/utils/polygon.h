@@ -775,7 +775,10 @@ public:
         paths.reserve(new_cap);
     }
 
-    void print() const {
+    void print(std::string s = "") const {
+        if (s != "") {
+            std::cout << s << std::endl;
+        }
         std::cout << "[";
         for (int i = 0; i < this->paths.size(); ++i)
         {

@@ -34,20 +34,6 @@ void SlicerLayer::makeBasicPolygonLoops(Polygons& open_polylines)
             makeBasicPolygonLoop(open_polylines, start_segment_idx);
         }
     }
-    if (this->z == 1000) {
-        this->polygons.print();
-        std::cout << "[";
-        for (int i = 0; i < segments.size(); ++i)
-        {
-            auto segment = segments[i];
-            if (segment.color != 1) {
-                continue;
-            }
-            std::cout << "[" << segment.start.X << "," << segment.start.Y << "," << segment.end.X << "," << segment.end.Y << "],";
-        }
-        std::cout << "]" << std::endl;
-        int a = 1;
-    }
 }
 
 void SlicerLayer::makeBasicPolygonLoop(Polygons& open_polylines, const size_t start_segment_idx)

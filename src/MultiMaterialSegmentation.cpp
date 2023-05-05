@@ -22,11 +22,12 @@ void MultiMaterialSegmentation::multiMaterialSegmentationByPainting(Slicer* slic
 
 void MultiMaterialSegmentation::paintingSlicerLayers(Slicer* slicer, Slicer* color_slicer)
 {
-    for (int i = 5; i < slicer->layers.size(); ++i)
+    for (int i = 0; i < slicer->layers.size(); ++i)
     {
         color_slicer->layers.emplace_back();
         auto& color_layer = color_slicer->layers[i];
         auto& layer = slicer->layers[i];
+        color_layer.z = layer.z;
         if (layer.segments_colors.size() <= 1)
         {
             continue;
@@ -38,66 +39,74 @@ void MultiMaterialSegmentation::paintingSlicerLayers(Slicer* slicer, Slicer* col
 
 void MultiMaterialSegmentation::paintingSlicerLayer(SlicerLayer& slicer_layer, SlicerLayer& color_slicer_layer)
 {
-    Polygons color_polys;
-    std::vector<Segment> color_segments;
-    slicer_layer.polygons.print();
-    std::cout << "[";
-    for (int i = 0; i < slicer_layer.segments.size(); ++i)
+    Polygons union_polygons = slicer_layer.polygons.unionPolygons();
+
+    std::vector<SlicerSegment> slicer_segments;
+    std::copy_if(slicer_layer.segments.begin(), slicer_layer.segments.end(), std::back_inserter(slicer_segments), [](SlicerSegment& slicer_segment) { return slicer_segment.color == 1; });
+
+    if (slicer_segments.size() == 0) {
+        slicer_layer.polygons = union_polygons;
+        return;
+    }
+
+    Polygons color_line_polys;
+    for (int i = 0; i < slicer_segments.size(); ++i)
     {
-        if (slicer_layer.segments[i].color != 1) {
+        Polygon poly;
+        auto slicer_segment = slicer_segments[i];
+        poly.add(slicer_segment.start);
+        poly.add(slicer_segment.end);
+        color_line_polys.add(poly);
+    }
+
+    color_line_polys = color_line_polys.offsetPolyLine(40);
+
+    std::cout << "z: " << slicer_layer.z << std::endl;
+    color_line_polys.print("color_line_polys");
+
+    Polygons all_voronoi_color_polys;
+    std::vector<Polygons> simple_polygons;
+    union_polygons.print("union_polygons");
+    PolygonUtils::splitToSimplePolygons(union_polygons, simple_polygons);
+    for (int i = 0; i < simple_polygons.size(); ++i)
+    {
+        Polygons polys = simple_polygons[i];
+        polys.print("simple");
+
+        Polygons color_polys;
+        std::vector<Segment> color_segments;
+        paintingPolygonByColorLinePolygons(polys, color_line_polys, color_polys, color_segments);
+
+        std::set<int> colors;
+        for (int j = 0; j < color_segments.size(); ++j)
+        {
+            colors.insert(color_segments[j].color);
+        }
+
+        if (colors.size() == 1) {
+            if (colors.find(painting_color) == colors.end()) {
+                continue;
+            }
+            all_voronoi_color_polys.add(polys);
             continue;
         }
-        auto segment = slicer_layer.segments[i];
-        std::cout << "[";
-        std::cout << segment.start.X << "," << segment.start.Y << ",";
-        std::cout << segment.end.X << "," << segment.end.Y;
-        std::cout << "],";
-    }
-    std::cout << "]" << std::endl;
 
-    std::unordered_map<int, std::vector<SlicerSegment>> angle_slicer_segments = toAngleSlicerSegments(slicer_layer.segments, 1);
-
-    Polygons& layer_polys = slicer_layer.polygons;
-    layer_polys.scale(scale);
-
-    for (int i = 0; i < layer_polys.size(); ++i)
-    {
-        Polygon color_poly;
-        for (int j = 0; j < layer_polys[i].size(); ++j)
-        {
-            auto& p1 = layer_polys[i][j];
-            auto& p2 = layer_polys[i][(j + 1) % layer_polys[i].size()];
-            addPaintingColorSegment(color_polys, color_poly, color_segments, p1, p2, angle_slicer_segments);
-        }
-        color_polys.add(color_poly);
+        color_polys.print("color_polys");
+        Polygons voronoi_color_polys = toVoronoiColorPolygons(color_segments);
+        all_voronoi_color_polys.add(voronoi_color_polys);
     }
 
-    std::vector<Segment> test_segments;
-    for (int i = 0; i < layer_polys[0].size(); ++i)
-    {
-        test_segments.emplace_back(&layer_polys, 0, i);
-    }
+    all_voronoi_color_polys = all_voronoi_color_polys.unionPolygons();
+    all_voronoi_color_polys = all_voronoi_color_polys.intersection(union_polygons);
 
-    int color = 0;
-    for (int i = 0; i < color_segments.size(); ++i)
-    {
-        if (color_segments[i].color == 1) {
-            color++;
-        }
-    }
-    std::cout << "cout:" << color << " - " << color_segments.size() << std::endl;
+    Polygons other_slicer_polys = union_polygons.difference(all_voronoi_color_polys.offset(10));
 
-    color_polys.print();
-
-    Polygons voronoi_color_polys;
-    toVoronoiColorPolygons(color_segments, voronoi_color_polys);
-    voronoi_color_polys.print();
-
-    voronoi_color_polys = voronoi_color_polys.unionPolygons();
-    voronoi_color_polys = voronoi_color_polys.intersection(slicer_layer.polygons);
-    Polygons other_slicer_polys = slicer_layer.polygons.difference(voronoi_color_polys);
-    color_slicer_layer.polygons = voronoi_color_polys;
     slicer_layer.polygons = other_slicer_polys;
+    color_slicer_layer.polygons = all_voronoi_color_polys;
+
+    union_polygons.print("1");
+    other_slicer_polys.print("2");
+    all_voronoi_color_polys.print("3");
 }
 
 std::unordered_map<int, std::vector<SlicerSegment>> MultiMaterialSegmentation::toAngleSlicerSegments(std::vector<SlicerSegment>& slicer_segments, int color)
@@ -114,7 +123,7 @@ std::unordered_map<int, std::vector<SlicerSegment>> MultiMaterialSegmentation::t
             continue;
         }
         int line_angle1 = angle((segment.end - segment.start));
-//        int line_angle2 = angle((segment.start - segment.end));
+        //        int line_angle2 = angle((segment.start - segment.end));
 
         if (angle_slicer_segments.find(line_angle1) == angle_slicer_segments.end())
         {
@@ -123,12 +132,12 @@ std::unordered_map<int, std::vector<SlicerSegment>> MultiMaterialSegmentation::t
 
         angle_slicer_segments[line_angle1].emplace_back(segment);
 
-//        if (angle_slicer_segments.find(line_angle2) == angle_slicer_segments.end())
-//        {
-//            angle_slicer_segments[line_angle2] = std::vector<SlicerSegment>();
-//        }
-//
-//        angle_slicer_segments[line_angle2].emplace_back(segment);
+        //        if (angle_slicer_segments.find(line_angle2) == angle_slicer_segments.end())
+        //        {
+        //            angle_slicer_segments[line_angle2] = std::vector<SlicerSegment>();
+        //        }
+        //
+        //        angle_slicer_segments[line_angle2].emplace_back(segment);
     }
 
     return angle_slicer_segments;
@@ -324,9 +333,12 @@ std::vector<SlicerSegment> MultiMaterialSegmentation::linePaintingBySegments(Poi
 
     for (auto iterator = res.begin(); iterator != res.end();)
     {
-        if (iterator->start == iterator->end) {
+        if (iterator->start == iterator->end)
+        {
             iterator = res.erase(iterator);
-        } else {
+        }
+        else
+        {
             iterator++;
         }
     }
@@ -334,15 +346,17 @@ std::vector<SlicerSegment> MultiMaterialSegmentation::linePaintingBySegments(Poi
     return res;
 }
 
-void MultiMaterialSegmentation::toVoronoiColorPolygons(std::vector<Segment>& colored_segments, Polygons& voronoi_color_polys)
+Polygons MultiMaterialSegmentation::toVoronoiColorPolygons(std::vector<Segment>& colored_segments)
 {
     vd_t vonoroi_diagram;
     construct_voronoi(colored_segments.begin(), colored_segments.end(), &vonoroi_diagram);
 
+    Polygons voronoi_color_polys;
+
     for (int i = 0; i < vonoroi_diagram.cells().size(); ++i)
     {
         auto& cell = vonoroi_diagram.cells()[i];
-        if (! cell.incident_edge() && !cell.contains_segment())
+        if (! cell.incident_edge() && ! cell.contains_segment())
         {
             continue;
         }
@@ -360,33 +374,45 @@ void MultiMaterialSegmentation::toVoronoiColorPolygons(std::vector<Segment>& col
         bool is_circle = false;
         do
         {
-            if (start->vertex0() == nullptr && start->vertex1()) {
+            if (start->vertex0() == nullptr && start->vertex1())
+            {
                 break;
             }
             start = start->prev();
 
-            if (start == cell.incident_edge()) {
+            if (start == cell.incident_edge())
+            {
                 is_circle = true;
             }
         } while (start != cell.incident_edge());
 
-        if (!is_circle) {
+        if (!is_circle)
+        {
             poly.add(to);
         }
         auto* next = start;
         do
         {
-            if (next->vertex0() && next->vertex1() == nullptr) {
+            if (next->vertex0() && next->vertex1() == nullptr)
+            {
                 break;
             }
             poly.add(Point(next->vertex1()->x(), next->vertex1()->y()));
             next = next->next();
         } while (next != start);
-        if (!is_circle) {
+        if (! is_circle)
+        {
             poly.add(from);
         }
         voronoi_color_polys.add(poly);
     }
+
+    voronoi_color_polys.print("voronoi_color_polys");
+
+    voronoi_color_polys = voronoi_color_polys.unionPolygons();
+    voronoi_color_polys.print();
+
+    return voronoi_color_polys;
 }
 
 void MultiMaterialSegmentation::transferEdge(graph_t& graph,
@@ -649,6 +675,277 @@ void MultiMaterialSegmentation::addPointByRandomSmallOffsetMap(Polygon& poly, Po
         poly.add(rp);
         mms_random_small_offset_point[&poly.back()] = p;
     }
+}
+
+void MultiMaterialSegmentation::paintingPolygonByColorLinePolygons(Polygons& polys, Polygons& color_line_polys, Polygons& color_polys, std::vector<Segment>& color_segments)
+{
+    AABB poly_lines_aabb;
+    for (int i = 0; i < color_line_polys.size(); ++i)
+    {
+        for (int j = 0; j < color_line_polys[i].size(); ++j)
+        {
+            poly_lines_aabb.include(color_line_polys[i][j]);
+        }
+    }
+
+    for (int i = 0; i < polys.size(); ++i)
+    {
+        Polygon color_poly;
+        for (int j = 0; j < polys[i].size(); ++j)
+        {
+            Point& p1 = polys[i][j];
+            Point& p2 = polys[i][(j + 1) % polys[i].size()];
+
+            AABB aabb;
+            aabb.include(p1);
+            aabb.include(p2);
+
+            if (! poly_lines_aabb.hit(aabb))
+            {
+                color_segments.emplace_back(&color_polys, color_polys.size(), color_poly.size(), no_painting_color);
+                color_poly.emplace_back(p1);
+                continue;
+            }
+
+            Line res = linePolygonsIntersection(p1, p2, color_line_polys);
+
+            for (int k = 0; k < res.colors.size(); ++k)
+            {
+                color_segments.emplace_back(&color_polys, color_polys.size(), color_poly.size(), res.colors[k]);
+                color_poly.emplace_back(res.points[k]);
+            }
+        }
+        color_polys.add(color_poly);
+    }
+}
+
+void MultiMaterialSegmentation::splitToOpenLineByCollinearSegments(Polygons& polys, Polygons& collinear_polys, std::vector<Line>& open_lines, int color)
+{
+    std::set<int> point_hash;
+    for (int i = 0; i < collinear_polys.size(); ++i)
+    {
+        for (int j = 0; j < collinear_polys[i].size(); ++j)
+        {
+            point_hash.insert(pointToHash(collinear_polys[i][j]));
+        }
+    }
+
+    for (int i = 0; i < polys.size(); ++i)
+    {
+        int start = -1;
+        for (int j = 0; j < polys[i].size(); ++j)
+        {
+            Point& p1 = polys[i][j];
+            Point& p2 = polys[i][(j + 1) % polys[i].size()];
+            if ((point_hash.find(pointToHash(p1)) != point_hash.end()) && (point_hash.find(pointToHash(p2)) == point_hash.end()))
+            {
+                start = j;
+                break;
+            }
+        }
+        if (start == -1)
+        {
+            continue;
+        }
+        bool last_point_hash = false;
+        open_lines.emplace_back();
+        //        open_lines.back().color = color;
+        open_lines.back().points.emplace_back(polys[i][start]);
+        for (int j = start + 1; j < start + polys[i].size(); ++j)
+        {
+            Point& p = polys[i][j % polys[i].size()];
+            coord_t hash = pointToHash(p);
+            if (! last_point_hash)
+            {
+                open_lines.back().points.emplace_back(p);
+                if (point_hash.find(hash) != point_hash.end())
+                {
+                    last_point_hash = true;
+                }
+            }
+            else
+            {
+                if (point_hash.find(hash) == point_hash.end())
+                {
+                    last_point_hash = false;
+                    open_lines.emplace_back();
+                    //                    open_lines.back().color = color;
+                    Point& p2 = polys[i][(j - 1) % polys[i].size()];
+                    open_lines.back().points.emplace_back(p2);
+                    open_lines.back().points.emplace_back(p);
+                }
+            }
+        }
+    }
+}
+
+MultiMaterialSegmentation::Line MultiMaterialSegmentation::linePolygonsIntersection(Point& p1, Point& p2, Polygons& line_polys)
+{
+    Polygons polys;
+    Polygon poly;
+    poly.add(p1);
+    poly.add(p2);
+    polys.add(poly);
+    Polygons res = line_polys.intersectionPolyLines(polys, false);
+
+    Line line;
+    if (res.size() == 0)
+    {
+        line.points.emplace_back(p1);
+        line.points.emplace_back(p2);
+        line.colors.emplace_back(no_painting_color);
+        return line;
+    }
+    if (res.size() == 1)
+    {
+        Point& res_p1 = res[0][0];
+        Point& res_p2 = res[0][1];
+        if ((p1 == res_p1 && p2 == res_p2) || (p1 == res_p2 && p2 == res_p1))
+        {
+            line.points.emplace_back(p1);
+            line.points.emplace_back(p2);
+            line.colors.emplace_back(painting_color);
+            return line;
+        }
+        if (p1 == res_p1 || p1 == res_p2)
+        {
+            line.points.emplace_back(p1);
+            line.points.emplace_back(p1 == res_p1 ? res_p2 : res_p1);
+            line.points.emplace_back(p2);
+            line.colors.emplace_back(painting_color);
+            line.colors.emplace_back(no_painting_color);
+            return line;
+        }
+        if (p2 == res_p1 || p2 == res_p2)
+        {
+            line.points.emplace_back(p1);
+            line.points.emplace_back(p2 == res_p1 ? res_p2 : res_p1);
+            line.points.emplace_back(p2);
+            line.colors.emplace_back(no_painting_color);
+            line.colors.emplace_back(painting_color);
+            return line;
+        }
+    }
+
+    line.points.emplace_back(p1);
+    line.points.emplace_back(p2);
+
+    for (int i = 0; i < res.size(); ++i)
+    {
+        assert(res[i].size() == 2);
+        for (int j = 0; j < res[i].size(); ++j)
+        {
+            line.points.emplace_back(res[i][j]);
+        }
+    }
+
+    std::sort(line.points.begin(),
+              line.points.end(),
+              [](Point& a, Point& b)
+              {
+                  if (std::abs(a.X - b.X) > std::abs(a.Y - b.Y))
+                  {
+                      return a.X < b.X;
+                  }
+                  else
+                  {
+                      return a.Y < b.Y;
+                  }
+              });
+    if (line.points.front() != p1)
+    {
+        std::reverse(line.points.begin(), line.points.end());
+        assert(line.points.front() == p1);
+        assert(line.points.back() == p2);
+    }
+
+    int color = no_painting_color;
+    for (int i = 0; i < line.points.size() - 1; ++i)
+    {
+        line.colors.emplace_back(color);
+        color = color == no_painting_color ? painting_color : no_painting_color;
+    }
+    if (line.points[0] == line.points[1]) {
+        line.points.erase(line.points.begin());
+        line.colors.erase(line.colors.begin());
+    }
+    if (line.points[line.points.size() - 2] == line.points.back()) {
+        line.points.pop_back();
+        line.colors.pop_back();
+    }
+    return line;
+    //    AABB aabb;
+    //    aabb.include(p1);
+    //    aabb.include(p2);
+    //
+    //    Line line;
+    //    line.points.emplace_back(p1);
+    //    line.points.emplace_back(p2);
+    //
+    //    for (int i = 0; i < line_polys.size(); ++i)
+    //    {
+    //        for (int j = 0; j < line_polys[i].size(); ++j)
+    //        {
+    //            AABB line_aabb = line_polys_aabb[i][j];
+    //            if (! line_aabb.hit(aabb))
+    //            {
+    //                continue;
+    //            }
+    //
+    //            Point p3 = line_polys[i][j];
+    //            Point p4 = line_polys[i][(j + 1) % line_polys[i].size()];
+    //
+    //            boost_segment_t s1(boost_point_t(p1.X, p1.Y), boost_point_t(p2.X, p2.Y));
+    //            boost_segment_t s2(boost_point_t(p3.X, p3.Y), boost_point_t(p4.X, p4.Y));
+    //
+    //            std::vector<boost_point_t> output;
+    //            bool result = boost::geometry::intersection(s1, s2, output);
+    //
+    //            if (result)
+    //            {
+    ////                line.points.emplace_back(out);
+    //                int a = 1;
+    //            }
+    //        }
+    //    }
+    //
+    //    if (line.points.size() > 2)
+    //    {
+    //        std::sort(line.points.begin(),
+    //                  line.points.end(),
+    //                  [](Point& a, Point& b)
+    //                  {
+    //                      if (std::abs(a.X - b.X) > std::abs(a.Y - b.Y))
+    //                      {
+    //                          return a.X < b.X;
+    //                      }
+    //                      else
+    //                      {
+    //                          return a.Y < b.Y;
+    //                      }
+    //                  });
+    //        if (line.points.front() != p1)
+    //        {
+    //            std::reverse(line.points.begin(), line.points.end());
+    //            assert(line.points.front() != p1);
+    //            assert(line.points.back() != p2);
+    //        }
+    //    }
+    //
+    //    for (int i = 0; i < line.points.size() - 1; ++i)
+    //    {
+    //        Point middle = (line.points[i] + line.points[i + 1]) / 2;
+    //        if (line_polys.inside(middle))
+    //        {
+    //            line.colors.emplace_back(painting_color);
+    //        }
+    //        else
+    //        {
+    //            line.colors.emplace_back(no_painting_color);
+    //        };
+    //    }
+    //
+    //    return line;
 }
 
 } // namespace cura

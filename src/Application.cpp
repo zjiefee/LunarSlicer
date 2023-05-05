@@ -221,7 +221,7 @@ void Application::run(const size_t argc, char** argv)
         // In either case, we don't want to slice.
         exit(0);
     }
-    startThreadPool(1); // Start the thread pool
+    startThreadPool(); // Start the thread pool
     while (communication->hasSlice())
     {
         communication->sliceNext();
